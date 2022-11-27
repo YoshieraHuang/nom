@@ -334,6 +334,63 @@ where
   }
 }
 
+/// Alternates between two parsers to produce
+/// a list of elements with expected count. Fails if the element
+/// parser does not produce as many elements as expected.
+/// # Arguments
+/// * `sep` Parses the separator between list elements.
+/// * `f` Parses the elements of the list.
+/// * `count` Expected number of elements
+/// ```rust
+/// # use nom::{Err, error::{Error, ErrorKind}, Needed, IResult};
+/// use nom::multi::separated_list_n;
+/// use nom::bytes::complete::tag;
+///
+/// fn parser(s: &str) -> IResult<&str, Vec<&str>> {
+///   separated_list_n(tag("|"), tag("abc"), 3)(s)
+/// }
+///
+/// assert_eq!(parser("abc|abc|abc"), Ok(("", vec!["abc", "abc", "abc"])));
+/// assert_eq!(parser("abc|abc"), Err(Err::Error(Error::new("", ErrorKind::Tag))));
+/// assert_eq!(parser(""), Err(Err::Error(Error::new("", ErrorKind::Tag))));
+/// assert_eq!(parser("def|abc"), Err(Err::Error(Error::new("def|abc", ErrorKind::Tag))));
+/// ```
+#[cfg(feature = "alloc")]
+#[cfg_attr(feature = "docsrs", doc(cfg(feature = "alloc")))]
+pub fn separated_list_n<I, O, O2, E, F, G>(
+  mut sep: G,
+  mut f: F,
+  count: usize,
+) -> impl FnMut(I) -> IResult<I, Vec<O>, E>
+where
+  I: Clone + InputLength,
+  F: Parser<I, O, E>,
+  G: Parser<I, O2, E>,
+  E: ParseError<I>,
+{
+  move |mut i: I| {
+    let mut res = Vec::with_capacity(count);
+
+    let (i1, o) = f.parse(i.clone())?;
+    res.push(o);
+    i = i1;
+
+    for _ in 0..(count - 1) {
+      let len = i.input_len();
+      let (i1, _) = sep.parse(i.clone())?;
+      if i1.input_len() == len {
+        return Err(Err::Error(E::from_error_kind(i1, ErrorKind::SeparatedList)));
+      }
+
+      let (i2, o) = f.parse(i1.clone())?;
+      res.push(o);
+      i = i2;
+    }
+
+    Ok((i, res))
+  }
+}
+
 /// Repeats the embedded parser `n` times or until it fails
 /// and returns the results in a `Vec`. Fails if the
 /// embedded parser does not succeed at least `m` times.
